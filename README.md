@@ -21,6 +21,8 @@ Built by [Dev Kumar](https://github.com/devkumar-swipe) for elite bug bounty hun
 - 📊 Report output in JSON, HTML, or Terminal
 
 ---
+![image](https://github.com/user-attachments/assets/860afe17-43a3-45d1-a018-9d65489a4bd8)
+---
 
 ## 🐧 OS Compatibility
 
