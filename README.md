@@ -61,17 +61,17 @@ python3 cyberchamp.py --continue scan_log.json --output resumed_report.json
 
 ## CLI Options
 Flag	Description
-  --list	(File with URLs to scan)
-  --mode	(active, passive, or dom)
-  --type	(reflected, stored, all)
-  --post	(POST body with FUZZ marker)
-  --payloads	(Custom payload file)
-  --proxy	(Proxy list file (e.g., socks5.txt))
-  --protocol	(http, socks4, socks5, or auto)
-  --threads	(Number of concurrent requests)
-  --continue	(Resume from previous scan log)
-  --output	(Save report to file)
-  --format	(Output format: console, json, or html)
+-  --list	(File with URLs to scan)
+-  --mode	(active, passive, or dom)
+-  --type	(reflected, stored, all)
+-  --post	(POST body with FUZZ marker)
+-  --payloads	(Custom payload file)
+-  --proxy	(Proxy list file (e.g., socks5.txt))
+-  --protocol	(http, socks4, socks5, or auto)
+-  --threads	(Number of concurrent requests)
+-  --continue	(Resume from previous scan log)
+-  --output	(Save report to file)
+-  --format	(Output format: console, json, or html)
 
 
 ## Output Formats
