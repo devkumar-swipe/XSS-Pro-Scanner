@@ -1,4 +1,4 @@
-# 🛡️ XSS Cyber Champ Pro 2050 — Elite Edition
+# 🛡️ XSS Pro Scanner 2050 — Elite Edition
 
 **AI-Powered Next-Gen XSS Detection Framework**  
 Built by [Dev Kumar](https://github.com/devkumar-swipe) for elite bug bounty hunting and automated web app security analysis.
