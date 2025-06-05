@@ -46,6 +46,21 @@ sudo apt install python3 python3-pip libwebkit2gtk-4.0-dev -y
 pip3 install -r requirements.txt
 playwright install
 ```
+## 3. Global call
+you can run it from anywhere in your terminal by just typing its name. Here’s a simple way to do that:
+1. First, make sure the script (xsschamp.py) is executable:
+   ```bash
+   chmod +x ~/xsschamp.py
+   ```
+2. Then create a symlink (shortcut) to a directory that’s in your PATH, like /usr/local/bin:
+   ```bash
+   sudo ln -s ~/xsschamp.py /usr/local/bin/xsschamp
+   ```
+3. Now, you can run the tool globally by just typing:
+   ```bash
+   xsschamp
+   ```
+---
 
 ## Usage
 🔹 Basic Scan (Single URL)
