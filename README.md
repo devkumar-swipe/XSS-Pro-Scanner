@@ -91,6 +91,21 @@ Flag	Description
 -  --format	(Output format: console, json, or html)
 
 
+| Option       | Description                                                                        | Example / Detail                                                                            |
+| ------------ | ---------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| `-h, --help` | Show this help message and exit                                                    | `xsschamp -h`                                                                               |
+| `--mode`     | The scanning mode:                                                                 | `passive` (only gather info), `active` (inject payloads), or `dom` (DOM-based XSS scanning) |
+| `--type`     | What kind of XSS to scan for:                                                      | `reflected` (in URL), `stored` (in stored data), or `all`                                   |
+| `--post`     | POST data for scanning stored XSS vulnerabilities (injection in POST body)         | `--post "username=admin&comment=FUZZ"`                                                      |
+| `--payloads` | Specify a file that contains custom XSS payloads to use instead of defaults        | `--payloads mypayloads.txt`                                                                 |
+| `--proxy`    | Use a proxy list file for routing traffic                                          | `--proxy socks5.txt`                                                                        |
+| `--protocol` | Proxy protocol: HTTP, SOCKS4, SOCKS5, or auto (auto-detect based on proxy file)    | `--protocol socks5`                                                                         |
+| `--output`   | Output the scan results to a file                                                  | `--output results.json`                                                                     |
+| `--format`   | Format of the output report                                                        | `console` (default), `json`, or `html`                                                      |
+| `url`        | The target URL to scan. Use the keyword `FUZZ` in the URL to mark injection points | `https://example.com/search?q=FUZZ`                                                         |
+
+
+
 ## Output Formats
 report.json: Structured output
 
