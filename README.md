@@ -48,15 +48,15 @@ playwright install
 ## Usage
 🔹 Basic Scan (Single URL)
 ```bash
-python3 cyberchamp.py "https://target.com/search?q=FUZZ" --mode active --type reflected
+python3 xsschamp.py "https://target.com/search?q=FUZZ" --mode active --type reflected
 ```
 🔹 Scan from List
 ```bash
-python3 cyberchamp.py --list urls.txt --type all --threads 20 --output final_report.html
+python3 xsschamp.py --list urls.txt --type all --threads 20 --output final_report.html
 ```
 🔹 Resume Scan (After Interruption)
 ```bash
-python3 cyberchamp.py --continue scan_log.json --output resumed_report.json
+python3 xsschamp.py --continue scan_log.json --output resumed_report.json
 ```
 
 ## CLI Options
