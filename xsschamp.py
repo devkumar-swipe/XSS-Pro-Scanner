@@ -26,7 +26,8 @@ VERSION = "2050.2-Elite"
 BANNER = f"""
 [bold cyan]╔══════════════════════════════════════════════════╗
 ║    [blink]XSS CYBER CHAMP PRO {VERSION}[/blink]      ║
-║  [italic]AI-Powered Next-Gen XSS Detection[/italic]    ║
+║  [italic]AI-Powered Next-Gen XSS Detection[/italic]  ║
+║            [blink] Made by Dev kumar [/blink]        ║
 ╚══════════════════════════════════════════════════╝[/bold cyan]
 """
 
