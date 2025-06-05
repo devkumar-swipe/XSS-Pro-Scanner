@@ -75,6 +75,50 @@ python3 xsschamp.py --list urls.txt --type all --threads 20 --output final_repor
 ```bash
 python3 xsschamp.py --continue scan_log.json --output resumed_report.json
 ```
+## More Usage 
+1. Passive Scan for Information Gathering Only
+```bash
+xsschamp --mode passive https://example.com/search?q=test
+```
+   Only gathers information without injecting any payloads.
+
+2. Active Scan for Reflected XSS on URL Parameter
+```bash
+xsschamp --mode active --type reflected https://example.com/search?q=FUZZ
+```
+   Actively injects XSS payloads into q parameter in URL.
+
+3. Scan for Stored XSS with POST Data Injection
+```bash
+xsschamp --mode active --type stored --post "username=admin&comment=FUZZ" https://example.com/comment
+```
+   Injects payloads into comment POST parameter to find stored XSS.
+
+4. Using Custom Payloads File
+```bash
+xsschamp --payloads mycustompayloads.txt --mode active https://example.com/search?q=FUZZ
+```
+   Uses your own payload list instead of defaults.
+
+5. Routing Requests Through Proxies
+```bash
+xsschamp --proxy socks5.txt --protocol socks5 --mode active https://example.com/search?q=FUZZ
+```
+   All requests go through SOCKS5 proxies defined in socks5.txt.
+
+6. Outputting Results to a JSON File
+```bash
+xsschamp --output results.json --format json --mode active https://example.com/search?q=FUZZ
+```
+   Results saved as a JSON file for further processing.
+
+7. DOM-Based XSS Scan
+```bash
+xsschamp --mode dom https://example.com/page?param=FUZZ
+```
+   Scans for client-side DOM-based XSS vulnerabilities.
+
+---
 
 ## CLI Options
 Flag	Description
