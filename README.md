@@ -34,7 +34,7 @@ Built by [Dev Kumar](https://github.com/devkumar-swipe) for elite bug bounty hun
 ### 1. Clone the repo
 
 ```bash
-git clone https://github.com/devkumar-swipe/xss-pro-scanner.git
+https://github.com/devkumar-swipe/XSS-Pro-Scanner.git
 cd xss-pro-scanner
 ```
 ## 2. Install dependencies
