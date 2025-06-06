@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """
-XSS Cyber Champ Pro 2050 - Elite Edition with Continuation Feature
-Now with scan state persistence and resumption capabilities
+XSS Cyber Champ Pro 2050 - Elite Edition
 """
 
 import asyncio
